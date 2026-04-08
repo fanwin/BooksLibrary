@@ -28,6 +28,34 @@
             @keyup.enter="handleLogin"
           />
         </el-form-item>
+
+        <!-- 验证码区域 -->
+        <el-form-item prop="captchaCode">
+          <div class="captcha-wrapper">
+            <el-input
+              v-model="loginForm.captchaCode"
+              placeholder="请输入验证码"
+              size="large"
+              :prefix-icon="Key"
+              class="captcha-input"
+              maxlength="4"
+              @keyup.enter="handleLogin"
+            />
+            <div class="captcha-image-box" @click="refreshCaptcha" title="点击刷新验证码">
+              <img
+                v-if="captchaImageUrl"
+                :src="captchaImageUrl"
+                alt="验证码"
+                class="captcha-img"
+              />
+              <div v-else class="captcha-loading">
+                <el-icon class="is-loading"><Loading /></el-icon>
+                加载中...
+              </div>
+            </div>
+          </div>
+          <div class="captcha-tip">看不清？<span class="refresh-link" @click="refreshCaptcha">换一张</span></div>
+        </el-form-item>
         
         <el-form-item>
           <el-button
@@ -51,11 +79,12 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { Reading, User, Lock } from '@element-plus/icons-vue'
+import { Reading, User, Lock, Key, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -64,8 +93,39 @@ const loading = ref(false)
 
 const loginForm = reactive({
   username: '',
-  password: ''
+  password: '',
+  captchaKey: '',
+  captchaCode: ''
 })
+
+// 验证码相关状态
+const captchaImageUrl = ref('')
+
+/**
+ * 获取验证码
+ * 调用后端 /auth/captcha 接口，获取 Base64 图片和 captcha_key
+ */
+const fetchCaptcha = async () => {
+  try {
+    captchaImageUrl.value = ''
+    const response = await axios.get('/api/v1/auth/captcha')
+    const data = response.data
+    loginForm.captchaKey = data.captcha_key
+    // 拼接 data:image 前缀用于 img 标签展示
+    captchaImageUrl.value = `data:image/png;base64,${data.captcha_image}`
+  } catch (error) {
+    console.error('获取验证码失败:', error)
+    // 验证码获取失败时允许继续登录（降级处理）
+    loginForm.captchaKey = ''
+    captchaImageUrl.value = ''
+  }
+}
+
+/** 刷新验证码（用户点击或登录失败后自动调用） */
+const refreshCaptcha = () => {
+  loginForm.captchaCode = ''  // 清空用户已输入的验证码
+  fetchCaptcha()
+}
 
 const rules = {
   username: [
@@ -74,6 +134,10 @@ const rules = {
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
     { min: 8, message: '密码长度至少8位', trigger: 'blur' }
+  ],
+  captchaCode: [
+    { required: true, message: '请输入验证码', trigger: 'blur' },
+    { len: 4, message: '请输入4位验证码', trigger: 'blur' }
   ]
 }
 
@@ -88,10 +152,17 @@ const handleLogin = async () => {
     router.push('/dashboard')
   } catch (error) {
     console.error('登录失败:', error)
+    // 登录失败后自动刷新验证码（防止暴力破解）
+    refreshCaptcha()
   } finally {
     loading.value = false
   }
 }
+
+// 页面加载时获取验证码
+onMounted(() => {
+  fetchCaptcha()
+})
 </script>
 
 <style scoped lang="scss">
@@ -155,6 +226,80 @@ const handleLogin = async () => {
 .login-form {
   .el-form-item {
     margin-bottom: 24px;
+  }
+}
+
+// 验证码区域样式
+.captcha-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+
+  .captcha-input {
+    flex: 1;
+
+    :deep(.el-input__inner) {
+      letter-spacing: 4px;  /* 验证码字符间距 */
+    }
+  }
+
+  .captcha-image-box {
+    width: 120px;
+    height: 42px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid #dcdfe6;
+    transition: border-color 0.2s;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fafafa;
+
+    &:hover {
+      border-color: #409eff;
+
+      .captcha-refresh-hint {
+        opacity: 1;
+      }
+    }
+
+    .captcha-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .captcha-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #909399;
+      height: 100%;
+      width: 100%;
+    }
+  }
+}
+
+.captcha-tip {
+  line-height: 1;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+  text-align: right;
+
+  .refresh-link {
+    color: #409eff;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
   }
 }
 

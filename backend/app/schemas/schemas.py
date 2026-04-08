@@ -1,7 +1,7 @@
 """
 Pydantic数据验证模式
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 from datetime import datetime, timezone
 
@@ -53,6 +53,10 @@ class UserResponse(UserBase):
 class UserLogin(BaseModel):
     username: str
     password: str
+    captcha_key: Optional[str] = Field(default=None, alias="captchaKey")
+    captcha_code: Optional[str] = Field(default=None, alias="captchaCode")
+
+    model_config = {"populate_by_name": True}
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -402,6 +406,17 @@ class ReaderCardLoss(BaseModel):
 
 class ReaderCardReplace(BaseModel):
     reader_type: Optional[str] = None
+
+# ============ 验证码相关模式 ============
+class CaptchaResponse(BaseModel):
+    captcha_key: str
+    captcha_image: str          # Base64 编码的 PNG 图片
+    expire_in: int              # 有效期（秒）
+
+class CaptchaVerify(BaseModel):
+    captcha_key: str
+    captcha_code: str
+
 
 # ============ 权限常量 ============
 ALL_PERMISSIONS = [

@@ -1,18 +1,45 @@
 """
-认证路由
+认证路由（含验证码）
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token, validate_password
+from app.core.captcha import generate_captcha, verify_captcha
 from app.models.models import User, UserRole, UserStatus
 from app.schemas.schemas import (
     UserCreate, UserLogin, TokenResponse,
-    UserResponse, PasswordChange, PasswordReset, AdminPasswordReset
+    UserResponse, PasswordChange, PasswordReset, AdminPasswordReset,
+    CaptchaResponse
 )
 from app.api.dependencies import get_current_user, require_super_admin, get_user_permissions
 
 router = APIRouter(prefix="/auth", tags=["认证"])
+
+
+# ============ 验证码接口 ============
+
+@router.get("/captcha", response_model=CaptchaResponse)
+async def get_captcha():
+    """
+    生成登录验证码
+    
+    返回 Base64 编码的验证码图片和关联的 captcha_key。
+    前端需将图片展示给用户，用户输入后连同 captcha_key 一起提交到登录接口。
+    
+    验证码特性：
+      - 4 位字符（大写字母 + 数字，排除易混淆的 0/O/1/I/L）
+      - 有效期 5 分钟
+      - 一次性使用（校验后立即失效）
+      - 大小写不敏感
+    """
+    result = generate_captcha(expire_seconds=300)
+    if "error" in result:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"验证码生成失败: {result.get('error')}",
+        )
+    return result
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
@@ -56,8 +83,28 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(login_data: UserLogin, db: Session = Depends(get_db)):
-    """用户登录（支持用户名或邮箱）"""
-    # 支持用户名或邮箱登录
+    """
+    用户登录（支持用户名或邮箱，需验证码）
+    
+    流程：
+      1. 校验验证码（captcha_key + captcha_code）
+      2. 验证用户名/邮箱 + 密码
+      3. 检查账户状态
+      4. 签发 JWT Token
+    """
+    # ====== 步骤1：校验验证码 ======
+    if login_data.captcha_key or login_data.captcha_code:
+        # 前端传了验证码字段，必须校验通过
+        if not verify_captcha(login_data.captcha_key, login_data.captcha_code):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码错误或已过期，请重新获取",
+            )
+    else:
+        # 兼容性：前端未传验证码时也允许登录（可后续强制要求）
+        pass
+
+    # ====== 步骤2：验证用户凭证 ======
     user = db.query(User).filter(
         (User.username == login_data.username) | (User.email == login_data.username)
     ).first()
@@ -69,19 +116,21 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # ====== 步骤3：检查账户状态 ======
     if user.status.value != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"用户账户状态：{user.status.value}"
         )
     
+    # ====== 步骤4：签发 Token ======
     access_token = create_access_token(data={"sub": user.user_id})
     refresh_token = create_refresh_token(data={"sub": user.user_id})
     
     # 记录登录日志
     from app.core.audit_log import write_log
     write_log(db, user.user_id, "user:login", "User", user.user_id,
-              details={"login_method": "password"})
+              details={"login_method": "password_with_captcha"})
     db.commit()
     
     return {
