@@ -5,6 +5,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.database import engine, Base
+
+# 创建数据库表
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="图书馆管理系统",

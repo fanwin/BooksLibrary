@@ -130,9 +130,19 @@ POST /api/v1/auth/login
 {
   "access_token": "eyJhbGciOiJIUzI1NiJ9...",
   "refresh_token": "eyJhbGciOiJIUzI1NiJ9...",
-  "token_type": "bearer"
+  "token_type": "bearer",
+  "expires_in": 3600,                          // 会话有效期（秒），默认 1 小时
+  "session_expires_at": "2026-04-13T12:22:00Z"  // 会话到期时间（ISO 8601）
 }
 ```
+
+**会话生命周期说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `expires_in` | number | Token/会话有效时长（秒），前端用于倒计时 |
+| `session_expires_at` | string | 精确的会话到期时间，前端用于超时检测 |
+
+> **安全策略**：用户登录后获得 **1 小时会话生命周期**。前端每 30 秒检测剩余时间，距离过期 **5 分钟** 时弹出续期提醒，过期则强制登出。刷新令牌（refresh token）有效期仍为 7 天。
 
 **错误响应 (400)**: 验证码错误或已过期
 ```json

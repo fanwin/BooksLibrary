@@ -322,6 +322,52 @@ class Holiday(Base):
     year = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+# 电子书表
+class EBook(Base):
+    __tablename__ = "ebooks"
+    
+    ebook_id = Column(Integer, primary_key=True, index=True)
+    isbn = Column(String(20), index=True)
+    title = Column(String(200), nullable=False)
+    author = Column(String(100))
+    publisher = Column(String(100))
+    publish_year = Column(Integer)
+    category_id = Column(Integer, ForeignKey("categories.category_id"))
+    file_format = Column(String(50), nullable=False)  # 文件格式：pdf, epub, mobi等
+    file_size = Column(Integer)  # 文件大小（字节）
+    file_path = Column(String(500), nullable=False)  # 存储路径
+    cover_url = Column(String(500))
+    description = Column(Text)
+    call_number = Column(String(50), index=True)  # 索书号
+    total_copies = Column(Integer, default=1)  # 可借阅份数
+    available_copies = Column(Integer, default=1)  # 可用份数
+    status = Column(Enum(BookStatus), default=BookStatus.AVAILABLE)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # 关联
+    category = relationship("Category")
+    borrow_records = relationship("EBookBorrowRecord", back_populates="ebook")
+
+# 电子书借阅记录表
+class EBookBorrowRecord(Base):
+    __tablename__ = "ebook_borrow_records"
+    
+    borrow_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    ebook_id = Column(Integer, ForeignKey("ebooks.ebook_id"), nullable=False)
+    borrow_date = Column(DateTime(timezone=True), server_default=func.now())
+    due_date = Column(DateTime(timezone=True), nullable=False)
+    return_date = Column(DateTime(timezone=True))
+    status = Column(Enum(BorrowStatus), default=BorrowStatus.ACTIVE)
+    operator_id = Column(Integer, ForeignKey("users.user_id"))  # 操作员
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # 关联
+    user = relationship("User", foreign_keys=[user_id])
+    ebook = relationship("EBook", back_populates="borrow_records")
+    operator = relationship("User", foreign_keys=[operator_id])
+
 # 消息通知表
 class Notification(Base):
     __tablename__ = "notifications"

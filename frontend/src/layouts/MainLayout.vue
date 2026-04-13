@@ -27,6 +27,11 @@
             <template #title>图书管理</template>
           </el-menu-item>
           
+          <el-menu-item index="/ebooks">
+            <el-icon><Document /></el-icon>
+            <template #title>电子书管理</template>
+          </el-menu-item>
+          
           <el-menu-item index="/borrows">
             <el-icon><Document /></el-icon>
             <template #title>借阅管理</template>

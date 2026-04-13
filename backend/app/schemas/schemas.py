@@ -62,6 +62,9 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    # 会话生命周期信息（前端用于超时检测和倒计时提示）
+    expires_in: int = 3600          # Token 有效期（秒），默认 1 小时
+    session_expires_at: Optional[str] = None   # 会话到期时间 ISO 格式
 
 # ============ 图书相关模式 ============
 class BookBase(BaseModel):
@@ -454,6 +457,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "catalog_admin": [
         "dashboard:read",
         "book:create", "book:read", "book:update", "book:delete",
+        "ebook:create", "ebook:read", "ebook:update", "ebook:delete",
         "category:create", "category:read", "category:update", "category:delete",
         "config:read", "log:read",
         "purchase:read", "purchase:review",
@@ -462,6 +466,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "circulation_admin": [
         "dashboard:read",
         "borrow:create", "borrow:read", "borrow:return", "borrow:renew", "borrow:approve",
+        "ebook:read", "ebook:borrow", "ebook:return",
         "user:read", "reservation:create", "reservation:read", "reservation:update", "reservation:cancel",
         "fine:read", "fine:update", "log:read",
         "reader_card:issue", "reader_card:loss", "reader_card:replace", "reader_card:read",
@@ -469,13 +474,78 @@ DEFAULT_ROLE_PERMISSIONS = {
     ],
     "reader": [
         "book:read", "category:read",
+        "ebook:read", "ebook:borrow", "ebook:return",
         "borrow:read", "reservation:create", "reservation:read", "reservation:cancel",
     ],
     "auditor": [
         "dashboard:read",
         "log:read", "log:export",
         "user:read", "borrow:read", "fine:read",
+        "ebook:read",
         "config:read",
         "statistics:read", "statistics:export",
     ],
 }
+
+# ============ 电子书相关模式 ============
+class EBookBase(BaseModel):
+    """电子书基础模型"""
+    isbn: Optional[str] = None
+    title: str = Field(..., max_length=200)
+    author: Optional[str] = None
+    publisher: Optional[str] = None
+    publish_year: Optional[int] = None
+    category_id: Optional[int] = None
+    file_format: str
+    file_size: Optional[int] = None
+    file_path: str
+    cover_url: Optional[str] = None
+    description: Optional[str] = None
+    call_number: Optional[str] = None
+
+class EBookCreate(EBookBase):
+    """电子书创建模型"""
+    total_copies: int = 1
+
+class EBookUpdate(BaseModel):
+    """电子书更新模型"""
+    isbn: Optional[str] = None
+    title: Optional[str] = None
+    author: Optional[str] = None
+    publisher: Optional[str] = None
+    publish_year: Optional[int] = None
+    category_id: Optional[int] = None
+    file_format: Optional[str] = None
+    file_size: Optional[int] = None
+    file_path: Optional[str] = None
+    cover_url: Optional[str] = None
+    description: Optional[str] = None
+    call_number: Optional[str] = None
+    total_copies: Optional[int] = None
+
+class EBookResponse(EBookBase):
+    """电子书响应模型"""
+    ebook_id: int
+    total_copies: int
+    available_copies: int
+    status: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class EBookBorrowResponse(BaseModel):
+    """电子书借阅响应模型"""
+    borrow_id: int
+    ebook_id: int
+    title: str
+    author: Optional[str] = None
+    file_format: str
+    borrow_date: datetime
+    due_date: datetime
+    return_date: Optional[datetime] = None
+    status: str
+    
+    class Config:
+        from_attributes = True

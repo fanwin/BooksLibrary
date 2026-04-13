@@ -4,6 +4,7 @@ API路由注册
 from fastapi import APIRouter
 from app.api.v1.auth import router as auth_router
 from app.api.v1.books import router as books_router
+from app.api.v1.ebooks import router as ebooks_router
 from app.api.v1.borrows import router as borrows_router
 from app.api.v1.reservations_fines import router as reservations_fines_router
 from app.api.v1.statistics import router as statistics_router
@@ -16,6 +17,7 @@ api_router = APIRouter()
 # 注册各模块路由
 api_router.include_router(auth_router)
 api_router.include_router(books_router)
+api_router.include_router(ebooks_router)
 api_router.include_router(borrows_router)
 api_router.include_router(reservations_fines_router)
 api_router.include_router(statistics_router)

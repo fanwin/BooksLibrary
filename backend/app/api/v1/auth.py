@@ -3,6 +3,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token, validate_password
 from app.core.captcha import generate_captcha, verify_captcha
@@ -123,20 +124,29 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
             detail=f"用户账户状态：{user.status.value}"
         )
     
-    # ====== 步骤4：签发 Token ======
+    # ====== 步骤4：签发 Token（含会话生命周期） ======
+    from app.core.config import settings
+    session_ttl_seconds = settings.SESSION_LIFETIME_HOURS * 3600
+    session_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=session_ttl_seconds)).isoformat()
+    
     access_token = create_access_token(data={"sub": user.user_id})
     refresh_token = create_refresh_token(data={"sub": user.user_id})
     
-    # 记录登录日志
+    # 记录登录日志（含会话生命周期信息）
     from app.core.audit_log import write_log
     write_log(db, user.user_id, "user:login", "User", user.user_id,
-              details={"login_method": "password_with_captcha"})
+              details={
+                  "login_method": "password_with_captcha",
+                  "session_lifetime_hours": settings.SESSION_LIFETIME_HOURS,
+              })
     db.commit()
     
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "expires_in": session_ttl_seconds,           # 会话有效期（秒），前端用于倒计时
+        "session_expires_at": session_expires_at      # 会话到期时间，前端用于精确判断
     }
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -158,11 +168,16 @@ async def refresh_token(request_body: dict, db: Session = Depends(get_db)):
     
     new_access_token = create_access_token(data={"sub": user.user_id})
     new_refresh_token = create_refresh_token(data={"sub": user.user_id})
-    
+
+    session_ttl_seconds = settings.SESSION_LIFETIME_HOURS * 3600
+    session_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=session_ttl_seconds)).isoformat()
+
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "expires_in": session_ttl_seconds,
+        "session_expires_at": session_expires_at
     }
 
 @router.get("/me", response_model=dict)

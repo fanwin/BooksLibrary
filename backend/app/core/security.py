@@ -23,16 +23,29 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """创建访问令牌"""
+    """创建访问令牌（含会话生命周期约束）"""
     to_encode = data.copy()
     # 确保 sub 字段是字符串类型
     if "sub" in to_encode:
         to_encode["sub"] = str(to_encode["sub"])
+    
+    # 会话有效期：优先使用传入的过期时间，否则使用配置中的会话生命周期
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
+        session_lifetime_seconds = int(expires_delta.total_seconds())
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "type": "access"})
+        session_lifetime_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+    now = datetime.now(timezone.utc)
+    
+    to_encode.update({
+        "exp": expire,
+        "iat": now,                          # 签发时间（用于计算剩余有效期）
+        "session_exp": expire.isoformat(),   # 会话到期时间（ISO格式，前端可直接解析）
+        "session_ttl": session_lifetime_seconds,  # 会话总时长（秒）
+        "type": "access"
+    })
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 

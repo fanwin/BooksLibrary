@@ -33,6 +33,12 @@ const routes = [
         meta: { title: '图书管理' }
       },
       {
+        path: 'ebooks',
+        name: 'Ebooks',
+        component: () => import('@/views/eBooks/EBookList.vue'),
+        meta: { title: '电子书管理' }
+      },
+      {
         path: 'borrows',
         name: 'Borrows',
         component: () => import('@/views/borrows/BorrowList.vue'),

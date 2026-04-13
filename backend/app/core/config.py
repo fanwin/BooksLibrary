@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     # JWT配置
     JWT_SECRET_KEY: str = "jwt-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # 会话生命周期：Access Token 有效期（小时）
+    SESSION_LIFETIME_HOURS: int = 1
+    # Access Token 有效期（分钟），由会话生命周期换算
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # Redis配置
