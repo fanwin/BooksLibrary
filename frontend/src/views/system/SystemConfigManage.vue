@@ -26,9 +26,13 @@
       <!-- 配置表格 -->
       <el-table :data="filteredConfigs" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="config_id" label="ID" width="65" />
-        <el-table-column prop="config_key" label="配置键" min-width="200">
+        <el-table-column label="配置项" min-width="220">
           <template #default="{ row }">
-            <code class="config-key">{{ row.config_key }}</code>
+            <span class="config-display-name">{{ getDisplayName(row.config_key) }}</span>
+            <!-- 鼠标悬停提示真实键名（仅管理员可见） -->
+            <el-tooltip :content="`内部键名: ${row.config_key}`" placement="top">
+              <el-icon class="key-hint-icon"><Info-Filled /></el-icon>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column prop="config_value" label="配置值" min-width="150">
@@ -68,10 +72,22 @@
       destroy-on-close
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="配置键" prop="config_key">
-          <el-input v-model="form.config_key" :disabled="isEdit"
-            placeholder="如 DEFAULT_BORROW_DAYS" maxlength="100" show-word-limit />
-          <div class="form-tip">配置键名，创建后不可修改</div>
+        <el-form-item label="配置项" prop="config_key">
+          <!-- 新增模式：输入框 + 显示名称预览 -->
+          <template v-if="!isEdit">
+            <el-input v-model="form.config_key"
+              placeholder="如 DEFAULT_BORROW_DAYS" maxlength="100" show-word-limit />
+            <div class="form-tip">
+              显示名称预览：<span class="preview-name">{{ getDisplayName(form.config_key) || '（请输入配置键）' }}</span>
+            </div>
+          </template>
+          <!-- 编辑模式：只显示中文名称，完全隐藏内部变量名 -->
+          <template v-else>
+            <div class="edit-config-display">
+              <span class="display-name">{{ getDisplayName(form.config_key) }}</span>
+            </div>
+            <div class="form-tip">配置项名称（创建后不可修改）</div>
+          </template>
         </el-form-item>
         <el-form-item label="配置值" prop="config_value">
           <el-input v-model="form.config_value" placeholder="请输入配置值" />
@@ -92,8 +108,30 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search, InfoFilled } from '@element-plus/icons-vue'
 import request from '@/utils/request'
+
+// ========== 配置键显示名称映射（隐藏内部变量名）==========
+const CONFIG_DISPLAY_NAMES = {
+  'DEFAULT_BORROW_DAYS': '默认借阅期限（天）',
+  'MAX_BORROW_COUNT': '最大借阅数量（本）',
+  'MAX_RENEW_COUNT': '续借次数上限（次）',
+  'RENEW_DAYS': '续借期限（天）',
+  'DAILY_FINE_AMOUNT': '每日逾期罚款（元）',
+  'FINE_GRACE_DAYS': '免罚宽限期（天）',
+  'RESERVATION_HOLD_DAYS': '预约保留天数（天）',
+  'MAX_RESERVATION_COUNT': '最大预约数量（个）',
+  'fine_freeze_threshold': '罚款冻结阈值（元）',
+}
+
+/**
+ * 获取配置项的显示名称
+ * @param {string} configKey - 内部配置键名
+ * @returns {string} 中文显示名称（找不到则返回键名本身）
+ */
+const getDisplayName = (configKey) => {
+  return CONFIG_DISPLAY_NAMES[configKey] || configKey
+}
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -236,13 +274,20 @@ function formatTime(timeStr) {
   text-align: right;
 }
 
-.config-key {
-  background: #f5f7fa;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 13px;
+.config-display-name {
+  font-weight: 500;
+  font-size: 14px;
   color: #303133;
-  font-family: 'Courier New', monospace;
+}
+
+.key-hint-icon {
+  margin-left: 6px;
+  font-size: 14px;
+  color: #909399;
+  cursor: help;
+  &:hover {
+    color: #409EFF;
+  }
 }
 
 .config-value {
@@ -250,9 +295,36 @@ function formatTime(timeStr) {
   color: #409EFF;
 }
 
+/* 编辑对话框样式 */
+.edit-config-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+
+  .display-name {
+    font-weight: 600;
+    font-size: 15px;
+    color: #303133;
+  }
+
+  .key-tag {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+  }
+}
+
+.preview-name {
+  color: #409EFF;
+  font-weight: 500;
+}
+
 .form-tip {
   font-size: 12px;
   color: #909399;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 </style>

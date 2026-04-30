@@ -1,11 +1,15 @@
 """
-认证路由（含验证码）
+认证路由（含验证码 + RSA传输加密）
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
-from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token, validate_password
+from app.core.security import (
+    verify_password, get_password_hash, create_access_token, create_refresh_token,
+    decode_token, validate_password,
+    generate_rsa_keypair, rsa_decrypt, get_public_key_pem
+)
 from app.core.captcha import generate_captcha, verify_captcha
 from app.models.models import User, UserRole, UserStatus
 from app.schemas.schemas import (
@@ -16,6 +20,34 @@ from app.schemas.schemas import (
 from app.api.dependencies import get_current_user, require_super_admin, get_user_permissions
 
 router = APIRouter(prefix="/auth", tags=["认证"])
+
+
+# ============ RSA 公钥接口（用于前端加密密码） ============
+
+@router.get("/public-key")
+async def get_rsa_public_key():
+    """
+    获取 RSA 公钥（用于前端加密密码传输）
+
+    每次调用生成新的密钥对，确保一次性使用，防止重放攻击。
+    返回 PEM 格式公钥字符串，前端用 Web Crypto API 加密密码后提交。
+    """
+    try:
+        _, public_key_pem = generate_rsa_keypair()
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "public_key": public_key_pem,
+                "algorithm": "RSA-OAEP",
+                "key_size": 2048
+            }
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"生成密钥失败: {str(e)}"
+        )
 
 
 # ============ 验证码接口 ============
@@ -85,32 +117,42 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(login_data: UserLogin, db: Session = Depends(get_db)):
     """
-    用户登录（支持用户名或邮箱，需验证码）
-    
-    流程：
-      1. 校验验证码（captcha_key + captcha_code）
-      2. 验证用户名/邮箱 + 密码
-      3. 检查账户状态
-      4. 签发 JWT Token
+    用户登录（支持 RSA 加密密码 + 明文密码向后兼容）
+
+    密码处理逻辑：
+      1. 如果 password 是 Base64 密文（长度 > 100）→ 尝试 RSA 解密
+      2. 解密失败或非加密格式 → 当作明文处理（兼容旧客户端/不支持 Web Crypto 的浏览器）
     """
+    # ====== 步骤0：解密密码（如果已加密）======
+    raw_password = login_data.password
+    decrypted_password = None
+
+    # 启发式判断：RSA-2048 OAEP 加密后的密文约 256-344 字符（Base64）
+    # 正常用户密码极少超过 100 字符，以此区分加密/明文
+    if len(raw_password) > 100:
+        try:
+            decrypted_password = rsa_decrypt(raw_password)
+        except Exception:
+            pass  # 解密失败 → 降级为明文尝试
+
+    password_to_verify = decrypted_password or raw_password
+
     # ====== 步骤1：校验验证码 ======
     if login_data.captcha_key or login_data.captcha_code:
-        # 前端传了验证码字段，必须校验通过
         if not verify_captcha(login_data.captcha_key, login_data.captcha_code):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="验证码错误或已过期，请重新获取",
             )
     else:
-        # 兼容性：前端未传验证码时也允许登录（可后续强制要求）
         pass
 
     # ====== 步骤2：验证用户凭证 ======
     user = db.query(User).filter(
         (User.username == login_data.username) | (User.email == login_data.username)
     ).first()
-    
-    if not user or not verify_password(login_data.password, user.password_hash):
+
+    if not user or not verify_password(password_to_verify, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",

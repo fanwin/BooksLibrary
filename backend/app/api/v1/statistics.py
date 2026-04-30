@@ -28,6 +28,7 @@ async def get_dashboard_stats(
     """获取运营看板数据"""
     today = datetime.now().date()
 
+    # ========== 基础当日统计 ==========
     today_borrows = db.query(BorrowRecord).filter(
         func.date(BorrowRecord.borrow_date) == today
     ).count()
@@ -61,9 +62,84 @@ async def get_dashboard_stats(
     total_borrow_count = db.query(BorrowRecord).count()
     circulation_rate = round(total_borrow_count / total_copies * 100, 2) if total_copies > 0 else 0
 
+    # 罚款总数（历史累计已缴罚款金额）
+    total_fines_amount = db.query(Fine).filter(
+        Fine.status == FineStatus.PAID
+    ).with_entities(func.sum(Fine.amount)).scalar() or 0
+
+    # ========== Phase2: 周期性统计 & 环比增长 ==========
+    import calendar
+
+    # 本周借阅（本周一 ~ 今天）
+    week_start = today - timedelta(days=today.weekday())
+    week_borrows = db.query(BorrowRecord).filter(
+        func.date(BorrowRecord.borrow_date) >= week_start,
+        func.date(BorrowRecord.borrow_date) <= today
+    ).count()
+
+    # 上周借阅（上周一 ~ 上周日）→ 用于计算周环比
+    last_week_start = week_start - timedelta(days=7)
+    last_week_end = week_start - timedelta(days=1)
+    last_week_borrows = db.query(BorrowRecord).filter(
+        func.date(BorrowRecord.borrow_date) >= last_week_start,
+        func.date(BorrowRecord.borrow_date) <= last_week_end
+    ).count()
+    if last_week_borrows > 0:
+        week_growth = round((week_borrows - last_week_borrows) / last_week_borrows * 100, 1)
+    else:
+        week_growth = 100.0 if week_borrows > 0 else 0.0
+
+    # 本月借阅
+    month_start = today.replace(day=1)
+    month_borrows = db.query(BorrowRecord).filter(
+        func.date(BorrowRecord.borrow_date) >= month_start,
+        func.date(BorrowRecord.borrow_date) <= today
+    ).count()
+
+    # 上月借阅 → 用于计算月环比
+    if today.month == 1:
+        last_month_start = today.replace(year=today.year - 1, month=12, day=1)
+    else:
+        last_month_start = today.replace(month=today.month - 1, day=1)
+    _, last_day_of_last_month = calendar.monthrange(last_month_start.year, last_month_start.month)
+    last_month_end = last_month_start.replace(day=last_day_of_last_month)
+    last_month_borrows = db.query(BorrowRecord).filter(
+        func.date(BorrowRecord.borrow_date) >= last_month_start,
+        func.date(BorrowRecord.borrow_date) <= last_month_end
+    ).count()
+    if last_month_borrows > 0:
+        month_growth = round((month_borrows - last_month_borrows) / last_month_borrows * 100, 1)
+    else:
+        month_growth = 100.0 if month_borrows > 0 else 0.0
+
+    # ========== Phase2: 未缴罚款总额（管理员财务视角）==========
+    unpaid_fines_total = db.query(Fine).filter(
+        Fine.status == FineStatus.PENDING
+    ).with_entities(func.sum(Fine.amount)).scalar() or 0
+
+    # ========== Phase2: 今日新注册用户 ==========
+    today_new_readers = db.query(User).filter(
+        User.role == UserRole.READER,
+        func.date(User.created_at) == today
+    ).count()
+
+    # ========== Phase1: 馆藏健康度 — 在馆率 ==========
+    available_copies = db.query(Book).with_entities(func.sum(Book.available_copies)).scalar() or 0
+    available_rate = round(available_copies / total_copies * 100, 2) if total_copies > 0 else 0
+
+    # ========== Phase1: 沉睡图书数量（180天未被借阅）==========
+    dormant_cutoff = datetime.now() - timedelta(days=180)
+    dormant_subq = db.query(BorrowRecord.copy_id).filter(
+        BorrowRecord.borrow_date >= dormant_cutoff
+    )
+    dormant_books_count = db.query(Book).filter(
+        ~Book.book_id.in_(dormant_subq)
+    ).count()
+
     return {
         "code": 200, "message": "success",
         "data": {
+            # --- 当日核心 ---
             "today_borrows": today_borrows,
             "today_returns": today_returns,
             "today_fines": float(today_fines),
@@ -73,7 +149,25 @@ async def get_dashboard_stats(
             "total_books": total_books,
             "total_copies": total_copies,
             "total_readers": total_readers,
+
+            # --- 累计指标 ---
+            "total_borrow_count": total_borrow_count,
+            "total_fines_amount": float(total_fines_amount),
             "circulation_rate": circulation_rate,
+
+            # === Phase2: 周期统计 + 环比 ===
+            "week_borrows": week_borrows,
+            "month_borrows": month_borrows,
+            "week_growth": week_growth,          # 周环比 %
+            "month_growth": month_growth,         # 月环比 %
+
+            # === Phase2: 财务 & 用户 ===
+            "unpaid_fines_total": float(unpaid_fines_total),
+            "today_new_readers": today_new_readers,
+
+            # === Phase1: 馆藏健康度 ===
+            "available_rate": available_rate,     # 在馆率 %
+            "dormant_books_count": dormant_books_count,  # 沉睡图书本数
         }
     }
 
